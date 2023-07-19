@@ -14,6 +14,7 @@
 #include "InfixIterator.h"
 #include "MooseVariableDependencyInterface.h"
 #include "BoundaryRestrictable.h"
+#include "BlockRestrictable.h"
 
 #include <iterator>
 #include <list>
@@ -40,7 +41,8 @@ class MooseMesh;
 class FeatureFloodCount : public GeneralPostprocessor,
                           public Coupleable,
                           public MooseVariableDependencyInterface,
-                          public BoundaryRestrictable
+                          public BoundaryRestrictable,
+                          public BlockRestrictable
 {
 public:
   static InputParameters validParams();
