@@ -100,6 +100,7 @@ FeatureFloodCount::validParams()
 {
   InputParameters params = GeneralPostprocessor::validParams();
   params += BoundaryRestrictable::validParams();
+  params += BlockRestrictable::validParams();
 
   params.addRequiredCoupledVar(
       "variable",
@@ -191,6 +192,7 @@ FeatureFloodCount::FeatureFloodCount(const InputParameters & parameters)
     Coupleable(this, false),
     MooseVariableDependencyInterface(this),
     BoundaryRestrictable(this, false),
+    BlockRestrictable(this, false),
     _fe_vars(getCoupledMooseVars()),
     _vars(getCoupledStandardMooseVars()),
     _dof_map(_vars[0]->dofMap()),
@@ -372,6 +374,9 @@ FeatureFloodCount::execute()
   {
     for (const auto & current_elem : _mesh.getMesh().active_local_element_ptr_range())
     {
+
+      if (!hasBlocks(current_elem->subdomain_id()))
+        continue;
       // Loop over elements or nodes
       if (_is_elemental)
       {
