@@ -12,6 +12,7 @@
 #include "GeneralVectorPostprocessor.h"
 #include "MooseVariableDependencyInterface.h"
 #include "BoundaryRestrictable.h"
+#include "Coupleable.h"
 
 #include <array>
 
@@ -29,6 +30,7 @@ class FeatureFloodCount;
  * one less thing for the user of this class to worry about.
  */
 class FeatureVolumeVectorPostprocessor : public GeneralVectorPostprocessor,
+                                         public Coupleable,
                                          public MooseVariableDependencyInterface,
                                          public BoundaryRestrictable
 {
@@ -56,9 +58,12 @@ protected:
 
   VectorPostprocessorValue & _var_num;
   VectorPostprocessorValue & _feature_volumes;
+  VectorPostprocessorValue & _feature_variable_element_integral;
   VectorPostprocessorValue & _intersects_bounds;
   VectorPostprocessorValue & _intersects_specified_bounds;
   VectorPostprocessorValue & _percolated;
+  /// Holds the solution at current quadrature points
+  const VariableValue & _variable_to_integrate;
 
   /// Indicates whether the calculation should be run on volumes or area of a boundary
   bool _is_boundary_restricted;
@@ -77,9 +82,13 @@ private:
 
   /// Calculate the integral value of the passed in variable (index)
   Real computeIntegral(std::size_t var_index) const;
+  /// Calculate the specified variable integral value based over the feature in the element
+  Real computeVariableIntegral(std::size_t var_index) const;
 
   /// Calculate the integral on the face if boundary is supplied as input
   Real computeFaceIntegral(std::size_t var_index) const;
+  /// Calculate the specified variable integral on the face if boundary is supplied as input
+  Real computeVariableFaceIntegral(std::size_t var_index) const;
 
   const std::vector<MooseVariableFEBase *> & _vars;
   std::vector<const VariableValue *> _coupled_sln;
