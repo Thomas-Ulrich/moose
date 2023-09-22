@@ -652,10 +652,11 @@ Parser::hitCLIFilter(std::string appname, const std::vector<std::string> & argv)
 }
 
 void
-Parser::parse(const std::vector<std::string> & input_filenames, const std::string & input_text)
+Parser::parse(const std::vector<std::string> & input_filenames,
+              const std::optional<std::string> & input_text)
 {
   // Check that if the input_text string is provided, then there is only one filename to match
-  if (!input_text.empty() && input_filenames.size() != 1)
+  if (input_text.has_value() && input_filenames.size() != 1)
     mooseError("If 'input_text' is provided, then 'input_filenames' must hold only one filename");
 
   // Save the filename
@@ -677,9 +678,11 @@ Parser::parse(const std::vector<std::string> & input_filenames, const std::strin
 
   for (auto & input_filename : _input_filenames)
   {
-    // Parse the input text string if non-empty, otherwise read file from disk
-    std::string input(input_text);
-    if (input.empty())
+    // Parse the input text string if provided, otherwise read file from disk
+    std::string input;
+    if (input_text.has_value())
+      input = input_text.value();
+    else
     {
       MooseUtils::checkFileReadable(input_filename, true);
       std::ifstream f(input_filename);
@@ -1203,6 +1206,14 @@ void Parser::setVectorParameter<ReporterName, std::string>(
     GlobalParamsAction * global_block);
 
 template <>
+void Parser::setVectorParameter<CLIArgString, std::string>(
+    const std::string & full_name,
+    const std::string & short_name,
+    InputParameters::Parameter<std::vector<CLIArgString>> * param,
+    bool in_global,
+    GlobalParamsAction * global_block);
+
+template <>
 void Parser::setDoubleIndexParameter<Point>(
     const std::string & full_name,
     const std::string & short_name,
@@ -1405,6 +1416,7 @@ Parser::extractParams(const std::string & prefix, InputParameters & p)
         setscalar(PostprocessorName, PostprocessorName);
         setscalar(ExecutorName, string);
         setscalar(NonlinearSystemName, string);
+        setscalar(CLIArgString, string);
 
         // Moose Compound Scalars
         setscalar(RealVectorValue, RealVectorValue);
@@ -1469,6 +1481,7 @@ Parser::extractParams(const std::string & prefix, InputParameters & p)
         setvector(MeshGeneratorName, string);
         setvector(ExtraElementIDName, string);
         setvector(ReporterName, string);
+        setvector(CLIArgString, string);
         setvector(PositionsName, string);
         setvector(TimesName, string);
         setvector(ReporterValueName, string);
@@ -2622,6 +2635,52 @@ Parser::setVectorParameter<ReporterName, std::string>(
     else
       param->set()[i] = ReporterName(names[0], names[1]);
   }
+}
+
+template <>
+void
+Parser::setVectorParameter<CLIArgString, std::string>(
+    const std::string & full_name,
+    const std::string & /*short_name*/,
+    InputParameters::Parameter<std::vector<CLIArgString>> * param,
+    bool /*in_global*/,
+    GlobalParamsAction * /*global_block*/)
+{
+  // Parsed as a vector of string, the vectors parameters are being cut
+  auto rnames = _root->param<std::vector<std::string>>(full_name);
+  param->set().resize(rnames.size()); // slightly oversized if vectors have been split
+
+  // Skip empty parameter
+  if (rnames.empty())
+    return;
+
+  // Re-assemble vector parameters
+  unsigned int i_param = 0;
+  bool vector_param_detected = false;
+  for (unsigned int i = 0; i < rnames.size(); ++i)
+  {
+    // Look for a quote, both types
+    std::vector<std::string> double_split =
+        MooseUtils::rsplit(rnames[i], "\"", std::numeric_limits<std::size_t>::max());
+    std::vector<std::string> single_split =
+        MooseUtils::rsplit(rnames[i], "\'", std::numeric_limits<std::size_t>::max());
+    if (double_split.size() + single_split.size() >= 3)
+      // Either entering or exiting a vector parameter (>3 is entering another vector)
+      // Even and >2 number of quotes means both finished and started another vector parameter
+      if ((double_split.size() + single_split.size()) % 2 == 1)
+        vector_param_detected = !vector_param_detected;
+
+    // We're building a vector parameters, just append the text, rebuild the spaces
+    if (vector_param_detected)
+      param->set()[i_param] += rnames[i] + ' ';
+    else
+    {
+      param->set()[i_param] += rnames[i];
+      i_param++;
+    }
+  }
+  // Use actual size after re-forming vector parameters
+  param->set().resize(i_param);
 }
 
 template <>

@@ -250,6 +250,7 @@ class TestHarness:
 
         checks = {}
         checks['platform'] = util.getPlatforms()
+        checks['machine'] = util.getMachine()
         checks['submodules'] = util.getInitializedSubmodules(self.run_tests_dir)
         checks['exe_objects'] = None # This gets calculated on demand
         checks['registered_apps'] = None # This gets extracted on demand
@@ -985,7 +986,8 @@ class TestHarness:
             and not os.path.exists(self.options.results_file)):
             print('A previous run does not exist')
             sys.exit(1)
-
+        elif os.path.exists(self.options.results_file):
+            os.remove(self.options.results_file)
 
     ## Parse command line options and assign them to self.options
     def parseCLArgs(self, argv):
