@@ -375,7 +375,7 @@ FeatureFloodCount::execute()
     for (const auto & current_elem : _mesh.getMesh().active_local_element_ptr_range())
     {
 
-      if (!hasBlocks(current_elem->subdomain_id()))
+      if (!BlockRestrictable::hasBlocks(current_elem->subdomain_id()))
         continue;
       // Loop over elements or nodes
       if (_is_elemental)
