@@ -80,15 +80,16 @@ private:
                                std::size_t num_features,
                                unsigned int side);
 
-  /// Calculate the integral value of the passed in variable (index)
-  Real computeIntegral(std::size_t var_index) const;
-  /// Calculate the specified variable integral value based over the feature in the element
-  Real computeVariableIntegral(std::size_t var_index) const;
+  /// Calculate the integral value of the passed in variable (index).
+  /// if var_to_integrate = nullptr compute feature volume, else compute the integral of the variable over the feature
+  Real computeIntegral(std::size_t var_index,
+                       const Elem * elem,
+                       const MooseArray<Real> * var_to_integrate) const;
 
   /// Calculate the integral on the face if boundary is supplied as input
-  Real computeFaceIntegral(std::size_t var_index) const;
-  /// Calculate the specified variable integral on the face if boundary is supplied as input
-  Real computeVariableFaceIntegral(std::size_t var_index) const;
+  /// if var_to_integrate = nullptr compute feature surface, else compute the integral of the variable over the feature
+  Real computeFaceIntegral(std::size_t var_index,
+                           const MooseArray<Real> * var_to_integrate = nullptr) const;
 
   const std::vector<MooseVariableFEBase *> & _vars;
   std::vector<const VariableValue *> _coupled_sln;

@@ -208,8 +208,9 @@ FeatureVolumeVectorPostprocessor::accumulateVolumes(
     {
       auto feature_id = var_to_features[var_index];
       mooseAssert(feature_id < num_features, "Feature ID out of range");
-      auto integral_value = computeIntegral(var_index);
-      auto variable_integral_value = computeVariableIntegral(var_index);
+
+      auto integral_value = computeIntegral(var_index, elem, nullptr);
+      auto variable_integral_value = computeIntegral(var_index, elem, &_variable_to_integrate);
 
       // Compute volumes in a simplistic but domain conservative fashion
       if (_single_feature_per_elem)
@@ -233,39 +234,52 @@ FeatureVolumeVectorPostprocessor::accumulateVolumes(
   // Accumulate the entire element volume into the dominant feature. Do not use the integral value
   if (_single_feature_per_elem && dominant_feature_id != FeatureFloodCount::invalid_id)
   {
-    _feature_volumes[dominant_feature_id] += _assembly.elementVolume(elem);
+    _feature_volumes[dominant_feature_id] += elem->volume();
     _feature_variable_element_integral[dominant_feature_id] +=
-        _assembly.elementVolume(elem) * _variable_to_integrate[0];
+        elem->volume() * _variable_to_integrate[0];
   }
 }
 
 Real
-FeatureVolumeVectorPostprocessor::computeIntegral(std::size_t var_index) const
+FeatureVolumeVectorPostprocessor::computeIntegral(std::size_t var_index,
+                                                  const Elem * elem,
+                                                  const MooseArray<Real> * var_to_integrate) const
 {
-  Real sum = 0;
-  for (unsigned int qp = 0; qp < _qrule->n_points(); ++qp)
-  {
-    Real entity_value = (*_coupled_sln[var_index])[qp];
-    Real threshold = _feature_counter.getThreshold(var_index);
-    bool is_selected = _feature_counter.compareValueWithThreshold(entity_value, threshold);
-    Real value = is_selected ? 1.0 : 0.0;
-    sum += _JxW[qp] * _coord[qp] * value;
-  }
-  return sum;
-}
+  const auto & var_data = (*_coupled_sln[var_index]);
+  const Real threshold = _feature_counter.getThreshold(var_index);
 
-Real
-FeatureVolumeVectorPostprocessor::computeVariableIntegral(std::size_t var_index) const
-{
-  Real sum = 0;
-  for (unsigned int qp = 0; qp < _qrule->n_points(); ++qp)
+  // 1. Lower-Dimensional Fallback
+  if (elem->dim() < _mesh.dimension())
   {
-    Real entity_value = (*_coupled_sln[var_index])[qp];
-    Real threshold = _feature_counter.getThreshold(var_index);
-    bool is_selected = _feature_counter.compareValueWithThreshold(entity_value, threshold);
-    Real value = is_selected ? _variable_to_integrate[qp] : 0.0;
-    sum += _JxW[qp] * _coord[qp] * value;
+    if (var_data.size() == 0)
+      return 0.0;
+
+    const bool is_selected = _feature_counter.compareValueWithThreshold(var_data[0], threshold);
+    if (!is_selected)
+      return 0.0;
+
+    // FALLBACK: if var_to_integrate is nullptr, multiplier defaults to 1.0 (returns pure volume)
+    Real multiplier =
+        (var_to_integrate && var_to_integrate->size() > 0) ? (*var_to_integrate)[0] : 1.0;
+    return elem->volume() * multiplier;
   }
+
+  // 2. Standard 3D Integration
+  Real sum = 0.0;
+  const unsigned int n_qp = _qrule->n_points();
+
+  for (unsigned int qp = 0; qp < n_qp; ++qp)
+  {
+    const bool is_selected = _feature_counter.compareValueWithThreshold(var_data[qp], threshold);
+    if (is_selected)
+    {
+      // VOLUME MODE: If pointer is nullptr, value defaults to 1.0
+      Real value =
+          (var_to_integrate && qp < var_to_integrate->size()) ? (*var_to_integrate)[qp] : 1.0;
+      sum += _JxW[qp] * _coord[qp] * value;
+    }
+  }
+
   return sum;
 }
 
@@ -286,8 +300,8 @@ FeatureVolumeVectorPostprocessor::accumulateBoundaryFaces(
     {
       auto feature_id = var_to_features[var_index];
       mooseAssert(feature_id < num_features, "Feature ID out of range");
-      auto integral_value = computeFaceIntegral(var_index);
-      auto variable_integral_value = computeVariableFaceIntegral(var_index);
+      auto integral_value = computeFaceIntegral(var_index, nullptr);
+      auto variable_integral_value = computeFaceIntegral(var_index, &_variable_to_integrate);
 
       if (_single_feature_per_elem)
       {
@@ -311,39 +325,32 @@ FeatureVolumeVectorPostprocessor::accumulateBoundaryFaces(
   if (_single_feature_per_elem && dominant_feature_id != FeatureFloodCount::invalid_id)
   {
     std::unique_ptr<const Elem> side_elem = elem->build_side_ptr(side);
-    _feature_volumes[dominant_feature_id] += _assembly.elementVolume(side_elem.get());
+    _feature_volumes[dominant_feature_id] += side_elem->volume();
     _feature_variable_element_integral[dominant_feature_id] +=
-        _assembly.elementVolume(side_elem.get()) * _variable_to_integrate[0];
+        side_elem->volume() * _variable_to_integrate[0];
   }
 }
 
 Real
-FeatureVolumeVectorPostprocessor::computeFaceIntegral(std::size_t var_index) const
+FeatureVolumeVectorPostprocessor::computeFaceIntegral(
+    std::size_t var_index, const MooseArray<Real> * var_to_integrate) const
 {
-  Real sum = 0;
-  for (unsigned int qp = 0; qp < _qrule_face->n_points(); ++qp)
-  {
-    Real entity_value = (*_coupled_sln[var_index])[qp];
-    Real threshold = _feature_counter.getThreshold(var_index);
-    bool is_selected = _feature_counter.compareValueWithThreshold(entity_value, threshold);
-    Real value = is_selected ? 1.0 : 0.0;
-    sum += _JxW_face[qp] * _coord[qp] * value;
-  }
+  const auto & var_data = (*_coupled_sln[var_index]);
+  const Real threshold = _feature_counter.getThreshold(var_index);
 
-  return sum;
-}
+  Real sum = 0.0;
+  const unsigned int n_qp = _qrule_face->n_points();
 
-Real
-FeatureVolumeVectorPostprocessor::computeVariableFaceIntegral(std::size_t var_index) const
-{
-  Real sum = 0;
-  for (unsigned int qp = 0; qp < _qrule_face->n_points(); ++qp)
+  for (unsigned int qp = 0; qp < n_qp; ++qp)
   {
-    Real entity_value = (*_coupled_sln[var_index])[qp];
-    Real threshold = _feature_counter.getThreshold(var_index);
-    bool is_selected = _feature_counter.compareValueWithThreshold(entity_value, threshold);
-    Real value = is_selected ? _variable_to_integrate[qp] : 0.0;
-    sum += _JxW_face[qp] * _coord[qp] * value;
+    const bool is_selected = _feature_counter.compareValueWithThreshold(var_data[qp], threshold);
+    if (is_selected)
+    {
+      // If pointer is nullptr, multiplier is 1.0
+      Real val =
+          (var_to_integrate && qp < var_to_integrate->size()) ? (*var_to_integrate)[qp] : 1.0;
+      sum += _JxW_face[qp] * _coord[qp] * val;
+    }
   }
 
   return sum;
